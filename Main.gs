@@ -2,11 +2,19 @@
 //////////// Configs ////////////
 
 let Config = {
-  "pricePerKWh": 0.16,
+  "pricePerKWh": 0.17,
+  "comparisonCarMPG": 30,
+  "comparisonGasPrice": 4.40,
   "processedLabelName": "Automated/Processed",
   "notion": {
     "api_key": "",
     "bill_database_id": ""
+  },
+  "collectapi": {
+    /* https://collectapi.com/api/gasPrice/gas-prices-api/stateUsaPrice */
+    "state": "CA",
+    "city": "San Francisco",
+    "api_key": ""
   }
 }
 
@@ -36,7 +44,8 @@ function start() {
   const messages = getEmailMessages(labelIds)
   const messageDetails = getMessageDetails(messages, labelIds, labelsMap[Config.processedLabelName])
   const parsedData = parseEmails(messageDetails)
-  addEntryIntoNotion(parsedData)
+  const gasPrice = fetchGasPrice()
+  addEntryIntoNotion(parsedData, gasPrice)
   applyProcessedLabelIfNeeded(labelsMap, messages)
 }
 
@@ -189,7 +198,7 @@ function applyProcessedLabelIfNeeded(labelsMap, messages) {
 
 //////////// Notion ////////////
 
-function addEntryIntoNotion(parsedData) {
+function addEntryIntoNotion(parsedData, gasPrice) {
   if (!Config.notion.api_key) { return }
 
   for (const data of parsedData) {
@@ -224,6 +233,12 @@ function addEntryIntoNotion(parsedData) {
         },
         "Price per kWh": {
           "number": Config.pricePerKWh
+        },
+        "Comparison: Car MPG": {
+          "number": Config.comparisonCarMPG
+        },
+        "Comparison: Gas Price": {
+          "number": gasPrice
         }
       }
     }
@@ -234,10 +249,32 @@ function addEntryIntoNotion(parsedData) {
           'Authorization': `Bearer ${Config.notion.api_key}`,
           'Notion-Version': '2021-05-13'
       },
-      'payload': JSON.stringify(postData)
+      'payload': JSON.stringify(postData),
+      muteHttpExceptions: true
     }
-    UrlFetchApp.fetch(url, options)
+
+    var response = UrlFetchApp.fetch(url, options)
+    Logger.log(response)
   }
+}
+
+//////////// Collect API ////////////
+
+function fetchGasPrice() {
+  if (!Config.collectapi.api_key) { return }
+  var url = `https://api.collectapi.com/gasPrice/stateUsaPrice?state=${Config.collectapi.state}`
+  var options = {
+    'method': 'GET',
+    'contentType': 'application/json',
+    'headers': {
+      'Authorization': `${Config.collectapi.api_key}`
+    }
+  }
+  var response = UrlFetchApp.fetch(url, options)
+  var data = JSON.parse(response.getContentText())
+  var city = data.result.cities.filter(city => city.name === Config.collectapi.city)[0]
+  var price = parseFloat(parseInt(city.gasoline * 100) / 100.0)
+  return price
 }
 
 
